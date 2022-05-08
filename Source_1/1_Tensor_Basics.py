@@ -107,8 +107,69 @@ z = torch.dot(x, y)
 print(z)
 
 # Batch Matrix Multiplication
-batch, m, n, p = 10, 5, 6, 2
+batch, m, n, p = 2, 5, 6, 2
 t1 = torch.rand((batch, m, n))
 t2 = torch.rand((batch, n, p))
 t3 = torch.bmm(t1, t2)
 print(t3)
+
+# Broadcasting Example
+t1 = torch.rand((3, 3))
+t2 = torch.rand((1, 3))
+z = t1 ** t2
+print(z)
+
+# Other Useful Operations
+t = torch.tensor([[-1, 3, 2], [4, 5, 6], [7, 8, 9]])
+z = torch.sum(t, dim=0)
+print(z)
+values, indices = torch.max(t, dim=1)
+print(values, indices)
+values, indices = torch.min(t, dim=1)
+print(values, indices)
+z = torch.abs(t)
+print(z)
+z = torch.argmax(t, dim=1)
+print(z)
+z = torch.mean(t.float(), dim=0)
+print(z)
+z = torch.eq(x, y)
+print(z)
+values, indices = torch.sort(t, dim=1, descending=False)
+print(values, indices)
+z = torch.clamp(t, min=2, max=5)
+print(z)
+z = t.ndimension()
+print(z)
+z = t.numel()
+print(z)
+
+# ========== TENSOR INDEXING ========== #
+
+batch_size = 10
+features = 25
+x = torch.rand((batch_size, features))
+z = x[0]
+print(z.shape)
+z = x[:, 0]
+print(z.shape)
+z = x[2, :10]
+print(z.shape)
+
+indices = [2, 5, 8]
+z = x[indices]
+print(z)
+
+rows = torch.tensor([2, 3, 5])
+cols = torch.tensor([1, 4, 6])
+z = x[rows, cols]
+print(z.shape)
+
+z = x[(x < 2) | (x > 8)]
+print(z.shape)
+
+z = x[x.remainder(2) == 0]
+print(z.shape)
+
+z = torch.where(x > 0.3, x, 0)
+print(z)
