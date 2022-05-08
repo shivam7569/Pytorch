@@ -56,7 +56,20 @@ learning_rate = 1e-3
 batch_size = 4
 num_epochs = 5
 
-dataset = CustomData("../datasets/cats_dogs.csv", "../datasets/cats_dogs_resized/", transform=transforms.ToTensor())
+transformations = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((256, 256)),
+    transforms.RandomCrop((224, 224)),
+    transforms.ColorJitter(brightness=0.5),
+    transforms.RandomRotation(degrees=45),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.01),
+    transforms.RandomGrayscale(p=0.2),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+])
+
+dataset = CustomData("../datasets/cats_dogs.csv", "../datasets/cats_dogs_resized/", transform=transformations)
 train_dataset, test_dataset = random_split(dataset, [8, 2])
 
 train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=True)
