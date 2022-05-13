@@ -1,8 +1,10 @@
+import os
+
 import torch
 import torch.nn as nn
 import torchvision
-from tqdm import tqdm
 from torch import optim
+from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets
@@ -95,18 +97,6 @@ def initialize_weights(model):
             nn.init.normal_(m.weight.data, 0.0, 0.02)
 
 
-def check():
-    N, in_channels, H, W, z_dim = 8, 3, 64, 64, 100
-    x = torch.randn((N, in_channels, H, W))
-    discriminator = Discriminator(channels_img=in_channels, features_d=8)
-    initialize_weights(discriminator)
-    assert discriminator(x).shape == (N, 1, 1, 1)
-    generator = Generator(z_dim=z_dim, channels_img=in_channels, features_g=8)
-    initialize_weights(generator)
-    z = torch.randn((N, z_dim, 1, 1))
-    assert generator(z).shape == (N, 3, 64, 64)
-
-
 def gradient_penalty(critic, real, fake, device):
     batch_size, C, W, H = real.shape
     epsilon = torch.rand((batch_size, 1, 1, 1)).repeat(1, C, H, W).to(device)
@@ -128,26 +118,33 @@ def gradient_penalty(critic, real, fake, device):
     return gradientPenalty
 
 
+def save_checkpoint(checkpoint, name="../models/checkpoint.pth.tar"):
+    print("SAVING CHECKPOINT")
+    if not os.path.exists("../models/"):
+        os.mkdir("../models")
+    torch.save(checkpoint, name)
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 64
 IMAGE_SIZE = 64
-CHANNELS_IMG = 1
+CHANNELS_IMG = 3
 Z_DIM = 100
 EPOCHS = 100
 FEATURES_D = FEATURES_G = 64
-CRITIC_ITERATIONS = 5
+CRITIC_ITERATIONS = 1
 LAMBDA = 10
 
 transformations = transforms.Compose([
-    transforms.Resize(IMAGE_SIZE),
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5 for _ in range(CHANNELS_IMG)], std=[0.5 for _ in range(CHANNELS_IMG)])
 ])
 
-dataset = datasets.MNIST(root="../datasets/", transform=transformations, download=True)
-# dataset = datasets.ImageFolder(root="../datasets/celebA/", transform=transformations)
+# dataset = datasets.MNIST(root="../datasets/", transform=transformations, download=True)
+dataset = datasets.ImageFolder(root="../datasets/celebA/", transform=transformations)
 loader = DataLoader(dataset=dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 generator = Generator(z_dim=Z_DIM, channels_img=CHANNELS_IMG, features_g=FEATURES_G).to(device=device)
@@ -161,15 +158,19 @@ optimizerC = optim.Adam(critic.parameters(), lr=LEARNING_RATE, betas=(0.0, 0.9))
 fixed_noise = torch.randn(32, Z_DIM, 1, 1).to(device=device)
 writer_disc = SummaryWriter(f"../tensorboard/WGAN_GP/discriminator/")
 writer_gen = SummaryWriter(f"../tensorboard/WGAN_GP/generator/")
-epoch_step = 0
+epoch_step = batch_step = 0
+
+loss_critic = fake = None
+NUM_BATCHES = len(loader)
 
 for epoch in range(EPOCHS):
-    epoch_loss_G = epoch_loss_C = []
-    for idx, (real, _) in enumerate(tqdm(loader)):
+    batch_loop = tqdm(enumerate(loader), total=NUM_BATCHES, leave=False)
+    for idx, (real, _) in batch_loop:
         real = real.to(device=device)
 
         for _ in range(CRITIC_ITERATIONS):
-            noise = torch.randn((BATCH_SIZE, Z_DIM, 1, 1)).to(device=device)
+            batch_size = real.shape[0]
+            noise = torch.randn((batch_size, Z_DIM, 1, 1)).to(device=device)
             fake = generator(noise)
             critic_real = critic(real).view(-1)
             critic_fake = critic(fake).view(-1)
@@ -179,24 +180,22 @@ for epoch in range(EPOCHS):
             loss_critic.backward(retain_graph=True)
             optimizerC.step()
 
-            epoch_loss_C.append(loss_critic.item())
-
         output = critic(fake).view(-1)
         loss_gen = -1 * torch.mean(output)
         generator.zero_grad()
         loss_gen.backward()
         optimizerG.step()
 
-        epoch_loss_G.append(loss_gen.item())
+        genLoss = loss_gen.item()
+        criLoss = loss_critic.item()
 
-        if idx == 0:
+        writer_gen.add_scalar("Loss", genLoss, global_step=batch_step)
+        writer_disc.add_scalar("Loss", criLoss, global_step=batch_step)
 
-            genLoss = sum(epoch_loss_G) / len(epoch_loss_G)
-            criLoss = sum(epoch_loss_C) / len(epoch_loss_C)
+        batch_step += 1
 
-            print(
-                f"Epoch: {epoch + 1}/{EPOCHS} --- Loss_C: {criLoss:.3f} --- Loss_G: {genLoss:.3f}"
-            )
+        if idx % 100 == 0 and idx > 0:
+
             with torch.no_grad():
                 fake = generator(fixed_noise)
                 img_grid_fake = torchvision.utils.make_grid(fake[:32], normalize=True)
@@ -205,7 +204,13 @@ for epoch in range(EPOCHS):
                 writer_gen.add_image("Generated", img_grid_fake, global_step=epoch_step)
                 writer_disc.add_image("Original", img_grid_real, global_step=epoch_step)
 
-                writer_gen.add_scalar("Loss", genLoss, global_step=epoch_step)
-                writer_disc.add_scalar("Loss", criLoss, global_step=epoch_step)
-
                 epoch_step += 1
+
+        batch_loop.set_description(f"Epoch: {epoch}/{EPOCHS}")
+        batch_loop.set_postfix(Loss_C=criLoss, Loss_G=genLoss)
+
+    if epoch > 0:
+        checkpointG = {"state_dict": generator.state_dict(), "optimizer": optimizerG.state_dict()}
+        checkpointC = {"state_dict": critic.state_dict(), "optimizer": optimizerC.state_dict()}
+        save_checkpoint(checkpointG, name=f"../models/WGAN_GP_Generator_{epoch}.pth.tar")
+        save_checkpoint(checkpointC, name=f"../models/WGAN_GP_Critic_{epoch}.pth.tar")
